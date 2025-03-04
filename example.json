@@ -1,0 +1,394 @@
+{
+  "auth": {
+    "login": {
+      "request": {
+        "username": "admin@example.com",
+        "password": "admin123"
+      },
+      "response": {
+        "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+        "token_type": "bearer"
+      }
+    },
+    "reset_password": {
+      "request": {
+        "current_password": "current_password",
+        "new_password": "new_password"
+      },
+      "response": {
+        "message": "Password updated successfully"
+      }
+    }
+  },
+  "payments": {
+    "create_payment_request": {
+      "deposit_request": {
+        "api_key": "your-api-key-here",
+        "service_type": 1,
+        "currency": "INR",
+        "action": "DEPOSIT",
+        "reference": "your-transaction-reference",
+        "amount": 1000,
+        "account_name": "Customer Name",
+        "account_number": "1234567890",
+        "bank": "Bank Name",
+        "bank_ifsc": "IFSC0001234",
+        "callback_url": "https://your-callback-url.com/payment-update",
+        "ae_type": "1",
+        "user_data": {
+          "customer_id": "123",
+          "email": "customer@example.com"
+        }
+      },
+      "deposit_response": {
+        "message": "Success",
+        "status": 201,
+        "response": {
+          "paymentMethod": "UPI",
+          "receiverInfo": {
+            "upi_id": "merchant@upi",
+            "name": "Merchant Name"
+          },
+          "upiLink": "upi://pay?pa=merchant@upi&pn=Merchant%20Name&am=1000&cu=INR&tn=a8a6359c8eda190f6beefc7d887b",
+          "trxnHashKey": "a8a6359c8eda190f6beefc7d887b",
+          "amount": "1000",
+          "requestedDate": "2023-05-01T12:00:00.000000Z"
+        }
+      },
+      "withdrawal_request": {
+        "api_key": "your-api-key-here",
+        "service_type": 1,
+        "currency": "INR",
+        "action": "WITHDRAWAL",
+        "reference": "your-transaction-reference",
+        "amount": 1000,
+        "account_name": "Customer Name",
+        "account_number": "1234567890",
+        "bank": "Bank Name",
+        "bank_ifsc": "IFSC0001234",
+        "callback_url": "https://your-callback-url.com/payment-update",
+        "ae_type": "1",
+        "user_data": {
+          "customer_id": "123",
+          "email": "customer@example.com"
+        }
+      },
+      "withdrawal_response": {
+        "message": "Success",
+        "status": 201,
+        "response": {
+          "receiverBankInfo": {
+            "bank": "Bank Name",
+            "bank_ifsc": "IFSC0001234",
+            "account_name": "Customer Name",
+            "account_number": "1234567890"
+          },
+          "trxnHashKey": "a8a6359c8eda190f6beefc7d887b",
+          "amount": "1000",
+          "requestedDate": "2023-05-01T12:00:00.000000Z"
+        }
+      }
+    },
+    "check_payment_request": {
+      "request": {
+        "trxnHashKey": "a8a6359c8eda190f6beefc7d887b"
+      },
+      "response": {
+        "message": "Success",
+        "status": 200,
+        "response": {
+          "transactionId": "f58fe481-c9e4-4fc0-b39d-31c561499e60",
+          "reference": "your-transaction-reference",
+          "type": "DEPOSIT",
+          "status": "PENDING",
+          "remarks": "",
+          "requestedDate": "2023-05-01 12:00:05"
+        }
+      }
+    },
+    "verify_payment": {
+      "request": {
+        "payment_id": "f58fe481-c9e4-4fc0-b39d-31c561499e60",
+        "utr_number": "UTR12345678"
+      },
+      "response": {
+        "message": "Payment verified successfully",
+        "payment_id": "f58fe481-c9e4-4fc0-b39d-31c561499e60",
+        "status": "CONFIRMED"
+      }
+    },
+    "create_payment_link": {
+      "request": {
+        "reference": "your-reference",
+        "amount": 1000,
+        "description": "Payment for Product XYZ",
+        "expires_in_hours": 24
+      },
+      "response": {
+        "id": "f58fe481-c9e4-4fc0-b39d-31c561499e60",
+        "reference": "your-reference",
+        "amount": 1000,
+        "currency": "INR",
+        "status": "ACTIVE",
+        "payment_link": "http://yourdomain.com:8000/pay/f58fe481-c9e4-4fc0-b39d-31c561499e60",
+        "expires_at": "2023-05-02T12:00:00.000000Z"
+      }
+    }
+  },
+  "admin": {
+    "create_user": {
+      "request": {
+        "email": "new-user@example.com",
+        "password": "password123",
+        "full_name": "New User",
+        "is_superuser": false
+      },
+      "response": {
+        "id": "f58fe481-c9e4-4fc0-b39d-31c561499e60",
+        "email": "new-user@example.com",
+        "full_name": "New User",
+        "is_active": true,
+        "is_superuser": false,
+        "created_at": "2023-05-01T12:00:00.000000Z",
+        "updated_at": "2023-05-01T12:00:00.000000Z"
+      }
+    },
+    "verify_payment": {
+      "request": {
+        "utr_number": "UTR12345678",
+        "remarks": "Verified via bank statement"
+      },
+      "response": {
+        "id": "f58fe481-c9e4-4fc0-b39d-31c561499e60",
+        "reference": "payment-ref-123",
+        "status": "CONFIRMED",
+        "amount": 1000,
+        "currency": "INR",
+        "payment_type": "DEPOSIT",
+        "utr_number": "UTR12345678",
+        "verified_by": "admin-user-id"
+      }
+    },
+    "decline_payment": {
+      "request": {
+        "remarks": "Payment not received in bank statement"
+      },
+      "response": {
+        "id": "f58fe481-c9e4-4fc0-b39d-31c561499e60",
+        "reference": "payment-ref-123",
+        "status": "DECLINED",
+        "amount": 1000,
+        "currency": "INR",
+        "payment_type": "DEPOSIT",
+        "declined_by": "admin-user-id",
+        "remarks": "Payment not received in bank statement"
+      }
+    },
+    "create_merchant": {
+      "request": {
+        "business_name": "New Merchant",
+        "business_type": "Gaming",
+        "contact_phone": "9876543210",
+        "address": "123 Main St, City, State",
+        "email": "new-merchant@example.com",
+        "password": "password123",
+        "callback_url": "https://merchant-site.com/callback",
+        "bank_details": {
+          "bank_name": "Example Bank",
+          "account_name": "New Merchant",
+          "account_number": "1234567890",
+          "ifsc_code": "EXBK0001234"
+        },
+        "upi_details": {
+          "upi_id": "merchant@upi",
+          "name": "New Merchant"
+        },
+        "min_deposit": 500,
+        "max_deposit": 300000,
+        "min_withdrawal": 1000,
+        "max_withdrawal": 1000000
+      },
+      "response": {
+        "id": "a1b2c3d4-e5f6-4321-1234-567890abcdef",
+        "business_name": "New Merchant",
+        "business_type": "Gaming",
+        "contact_phone": "9876543210",
+        "address": "123 Main St, City, State",
+        "api_key": "generated-api-key",
+        "callback_url": "https://merchant-site.com/callback",
+        "is_active": true,
+        "min_deposit": 500,
+        "max_deposit": 300000,
+        "min_withdrawal": 1000,
+        "max_withdrawal": 1000000,
+        "created_at": "2023-05-01T12:00:00.000000Z",
+        "updated_at": "2023-05-01T12:00:00.000000Z",
+        "user": {
+          "id": "f58fe481-c9e4-4fc0-b39d-31c561499e60",
+          "email": "new-merchant@example.com",
+          "full_name": "New Merchant"
+        },
+        "bank_details": [
+          {
+            "id": "b1a2c3d4-e5f6-4321-1234-567890abcdef",
+            "bank_name": "Example Bank",
+            "account_name": "New Merchant",
+            "account_number": "1234567890",
+            "ifsc_code": "EXBK0001234",
+            "is_active": true,
+            "created_at": "2023-05-01T12:00:00.000000Z",
+            "updated_at": "2023-05-01T12:00:00.000000Z"
+          }
+        ],
+        "upi_details": [
+          {
+            "id": "c1a2b3d4-e5f6-4321-1234-567890abcdef",
+            "upi_id": "merchant@upi",
+            "name": "New Merchant",
+            "is_active": true,
+            "created_at": "2023-05-01T12:00:00.000000Z",
+            "updated_at": "2023-05-01T12:00:00.000000Z"
+          }
+        ],
+        "ip_whitelist": [],
+        "rate_limits": []
+      }
+    },
+    "add_ip_whitelist": {
+      "request": {
+        "ip_address": "192.168.1.1",
+        "description": "Office IP"
+      },
+      "response": {
+        "id": "f58fe481-c9e4-4fc0-b39d-31c561499e60",
+        "merchant_id": "a1b2c3d4-e5f6-4321-1234-567890abcdef",
+        "ip_address": "192.168.1.1",
+        "description": "Office IP"
+      }
+    },
+    "update_rate_limit": {
+      "request": {
+        "endpoint": "payments",
+        "requests_per_minute": 120
+      },
+      "response": {
+        "merchant_id": "a1b2c3d4-e5f6-4321-1234-567890abcdef",
+        "endpoint": "payments",
+        "requests_per_minute": 120
+      }
+    }
+  },
+  "merchants": {
+    "update_profile": {
+      "request": {
+        "business_name": "Updated Business Name",
+        "business_type": "Updated Business Type",
+        "contact_phone": "9876543210",
+        "callback_url": "https://updated-callback.com"
+      },
+      "response": {
+        "id": "a1b2c3d4-e5f6-4321-1234-567890abcdef",
+        "business_name": "Updated Business Name",
+        "business_type": "Updated Business Type",
+        "contact_phone": "9876543210",
+        "email": "merchant@example.com",
+        "full_name": "Merchant User",
+        "callback_url": "https://updated-callback.com",
+        "min_deposit": 500,
+        "max_deposit": 300000,
+        "min_withdrawal": 1000,
+        "max_withdrawal": 1000000,
+        "bank_details": [],
+        "upi_details": []
+      }
+    },
+    "change_password": {
+      "request": {
+        "current_password": "current_password",
+        "new_password": "new_password"
+      },
+      "response": {
+        "message": "Password updated successfully"
+      }
+    }
+  },
+  "reports": {
+    "get_payments": {
+      "params": {
+        "start_date": "2023-01-01T00:00:00",
+        "end_date": "2023-12-31T23:59:59",
+        "status": "CONFIRMED",
+        "payment_type": "DEPOSIT",
+        "page": 1,
+        "page_size": 20
+      },
+      "response": {
+        "items": [
+          {
+            "id": "f58fe481-c9e4-4fc0-b39d-31c561499e60",
+            "reference": "payment-ref-123",
+            "trxn_hash_key": "a8a6359c8eda190f6beefc7d887b",
+            "payment_type": "DEPOSIT",
+            "payment_method": "UPI",
+            "amount": 1000,
+            "currency": "INR",
+            "status": "CONFIRMED",
+            "utr_number": "UTR12345678",
+            "created_at": "2023-05-01T12:00:00.000000Z",
+            "updated_at": "2023-05-01T12:05:00.000000Z"
+          }
+        ],
+        "total": 156,
+        "page": 1,
+        "page_size": 20,
+        "pages": 8
+      }
+    },
+    "get_statistics": {
+      "params": {
+        "days": 30
+      },
+      "response": {
+        "total_transactions": 45,
+        "successful_transactions": 42,
+        "success_rate": 93.33,
+        "total_deposit_amount": 75000,
+        "total_withdrawal_amount": 50000,
+        "pending_verification": 3,
+        "days": 30,
+        "daily_chart_data": [
+          {
+            "date": "2023-04-01",
+            "total": 5,
+            "confirmed": 4
+          },
+          {
+            "date": "2023-04-02",
+            "total": 7,
+            "confirmed": 7
+          }
+        ]
+      }
+    }
+  },
+  "webhook_callback": {
+    "success": {
+      "reference_id": "your-transaction-reference",
+      "status": 2,
+      "remarks": "Payment processed successfully",
+      "amount": "1000"
+    },
+    "declined": {
+      "reference_id": "your-transaction-reference",
+      "status": 3,
+      "remarks": "Payment not received in bank statement",
+      "amount": "1000"
+    }
+  }
+}
+//      "remarks": "Payment processed successfully",
+//      "amount": "1000"
+//    },
+//    "declined": {
+//      "reference_id": "your-transaction-reference",
+//      "status": 3
