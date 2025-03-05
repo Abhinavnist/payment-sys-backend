@@ -8,7 +8,7 @@ from app.services.payment_service import (
     check_payment_request,
     verify_payment,
     decline_payment,
-    create_payment_link
+    create_payment_link,store_payment_utr
 )
 from app.schemas.payment import (
     PaymentRequest,
@@ -68,14 +68,13 @@ async def api_check_payment_request(
             detail="Payment check failed"
         )
 
-
-@router.post("/verify-payment")
-async def api_verify_payment(
+@router.post("/submit-utr")
+async def api_submit_utr(
         request: VerifyPaymentRequest,
         merchant: Dict[str, Any] = Depends(get_api_key_merchant)
 ):
     """
-    Verify a payment by submitting the UTR number (user side)
+    Submit a UTR number for a payment (user side)
     """
     try:
         # Convert payment_id to UUID if it's a string
@@ -85,19 +84,17 @@ async def api_verify_payment(
             else request.payment_id
         )
 
-        # Verify payment
-        result = verify_payment(
+        # Store UTR without verifying payment
+        result = store_payment_utr(
             payment_id=str(payment_id),
             utr_number=request.utr_number,
-            verified_by=merchant["id"],
-            verification_method="USER",
-            remarks="Verified by user"
+            submitted_by=merchant["id"]
         )
 
         return {
-            "message": "Payment verified successfully",
+            "message": "UTR submitted successfully. Pending admin verification.",
             "payment_id": str(payment_id),
-            "status": "CONFIRMED"
+            "status": "PENDING"
         }
     except ValueError as e:
         raise HTTPException(
@@ -107,9 +104,8 @@ async def api_verify_payment(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Payment verification failed"
+            detail="UTR submission failed"
         )
-
 
 @router.post("/create-payment-link")
 async def api_create_payment_link(

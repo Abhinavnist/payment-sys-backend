@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, Tuple, List
 import asyncio
 import urllib.parse
-
+from app.utils.validators import validate_utr_number
 from app.core.config import settings
 from app.db.connection import execute_query, execute_transaction
 from app.services.webhook_service import send_webhook
@@ -487,3 +487,51 @@ def create_payment_link(
         "payment_link": payment_link,
         "expires_at": expires_at.isoformat()
     }
+
+
+def store_payment_utr(
+        payment_id: str,
+        utr_number: str,
+        submitted_by: str
+) -> Dict[str, Any]:
+    """
+    Store a UTR number for a payment without verifying
+
+    Parameters:
+    - payment_id: Payment ID
+    - utr_number: UTR number
+    - submitted_by: ID of the user who submitted the UTR
+
+    Returns:
+    - Updated payment data
+    """
+    try:
+        # Validate UTR number format
+        if not validate_utr_number(utr_number):
+            raise ValueError("Invalid UTR number format")
+
+        # Store UTR but keep status as PENDING
+        update_query = """
+        UPDATE payments
+        SET 
+            utr_number = %s,
+            updated_at = NOW()
+        WHERE 
+            id = %s AND status = 'PENDING'
+        RETURNING id, merchant_id, reference, amount, currency, payment_type, status
+        """
+
+        payment = execute_query(
+            update_query,
+            (utr_number, payment_id),
+            single=True
+        )
+
+        if not payment:
+            raise ValueError("Payment not found or already processed")
+
+        return payment
+
+    except Exception as e:
+        logger.error(f"Error storing payment UTR: {e}")
+        raise
