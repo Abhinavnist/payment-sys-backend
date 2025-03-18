@@ -246,3 +246,23 @@ INSERT INTO users (
     TRUE,
     TRUE
 );
+
+
+-- Add commission rate to merchants table
+ALTER TABLE merchants ADD COLUMN commission_rate DECIMAL(5,2) NOT NULL DEFAULT 2.50;
+
+-- Create transaction fees table
+CREATE TABLE transaction_fees (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    payment_id UUID NOT NULL REFERENCES payments(id),
+    merchant_id UUID NOT NULL REFERENCES merchants(id),
+    original_amount INTEGER NOT NULL,
+    commission_rate DECIMAL(5,2) NOT NULL,
+    fee_amount INTEGER NOT NULL,
+    final_amount INTEGER NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+-- Create index on transaction_fees
+CREATE INDEX idx_transaction_fees_payment_id ON transaction_fees(payment_id);
+CREATE INDEX idx_transaction_fees_merchant_id ON transaction_fees(merchant_id);

@@ -72,6 +72,12 @@ def validate_utr_number(utr_number: str) -> bool:
     Returns:
     - True if valid, False otherwise
     """
+    # Handle scientific notation if present
+    if 'E+' in utr_number:
+        try:
+            utr_number = '{:.0f}'.format(float(utr_number))
+        except ValueError:
+            return False
     # UTR number format: 12-22 alphanumeric characters
     pattern = r'^[A-Za-z0-9]{12,22}$'
     return bool(re.match(pattern, utr_number))

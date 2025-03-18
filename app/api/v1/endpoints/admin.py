@@ -494,3 +494,121 @@ async def update_merchant_rate_limit(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error updating rate limit: {str(e)}"
         )
+
+
+@router.put("/merchants/{merchant_id}/update-commission")
+async def update_merchant_commission(
+        merchant_id: uuid.UUID,
+        commission_rate: float = Body(..., ge=0, le=100),
+        current_user: UserInDB = Depends(get_current_active_superuser)
+):
+    """
+    Update merchant commission rate
+    """
+    try:
+        from app.db.connection import execute_query
+        # Validate commission rate
+        if commission_rate < 0 or commission_rate > 100:
+            raise ValueError("Commission rate must be between 0 and 100")
+
+        # Update merchant commission rate
+        query = """
+        UPDATE merchants
+        SET commission_rate = %s
+        WHERE id = %s
+        RETURNING id, business_name, commission_rate
+        """
+
+        result = execute_query(query, (commission_rate, str(merchant_id)), single=True)
+
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Merchant not found"
+            )
+
+        return {
+            "id": result["id"],
+            "business_name": result["business_name"],
+            "commission_rate": float(result["commission_rate"])
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.get("/reports/commissions")
+async def get_commission_reports(
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        merchant_id: Optional[uuid.UUID] = None,
+        current_user: UserInDB = Depends(get_current_active_superuser)
+):
+    try:
+        from app.db.connection import execute_query
+        """Get commission reports"""
+        query_params = []
+        filters = ""
+
+        # Base query
+        query = """
+        SELECT 
+            tf.id, tf.payment_id, tf.merchant_id, m.business_name,
+            tf.original_amount, tf.commission_rate, tf.fee_amount, 
+            tf.final_amount, tf.created_at,
+            p.reference, p.payment_type
+        FROM 
+            transaction_fees tf
+        JOIN
+            merchants m ON tf.merchant_id = m.id
+        JOIN
+            payments p ON tf.payment_id = p.id
+        WHERE 1=1
+        """
+
+        # Add filters
+        if start_date:
+            filters += " AND tf.created_at >= %s"
+            query_params.append(start_date)
+
+        if end_date:
+            filters += " AND tf.created_at <= %s"
+            query_params.append(end_date)
+
+        if merchant_id:
+            filters += " AND tf.merchant_id = %s"
+            query_params.append(str(merchant_id))
+
+        # Add filters and order by
+        query += filters + " ORDER BY tf.created_at DESC"
+
+        # Execute query
+        commissions = execute_query(query, tuple(query_params) if query_params else None)
+
+        # Calculate totals
+        total_query = """
+        SELECT 
+            SUM(tf.original_amount) as total_amount,
+            SUM(tf.fee_amount) as total_fees
+        FROM 
+            transaction_fees tf
+        WHERE 1=1
+        """ + filters
+
+        totals = execute_query(total_query, tuple(query_params) if query_params else None, single=True)
+
+        return {
+            "commissions": commissions,
+            "summary": {
+                "total_original_amount": totals["total_amount"] or 0,
+                "total_fees_collected": totals["total_fees"] or 0,
+                "count": len(commissions)
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )

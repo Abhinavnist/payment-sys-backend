@@ -96,3 +96,14 @@ class CallbackData(BaseModel):
     status: int = Field(..., description="2: Confirmed, 3: Declined")
     remarks: str = Field(..., description="Remarks upon processed")
     amount: str = Field(..., description="Amount processed")
+
+class FeeInfo(BaseModel):
+    """Fee information for payment"""
+    commission_rate: float = Field(..., description="Commission rate (%)")
+    fee_amount: int = Field(..., description="Fee amount")
+    final_amount: int = Field(..., description="Final amount after fee deduction")
+
+# Then add this to your PaymentVerificationResponse class
+class PaymentVerificationResponse(BaseModel):
+    # ... existing fields
+    fee_info: Optional[FeeInfo] = Field(None, description="Fee information")

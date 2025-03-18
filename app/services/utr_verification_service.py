@@ -152,6 +152,9 @@ def extract_utr_from_text(text: str) -> Optional[str]:
     # General pattern for UTR numbers
     pattern = r'(?:UTR|Ref\.?|Reference)\s*(?:No\.?|Number)?[:\s]*([A-Za-z0-9]{12,22})(?![0-9\-])'
 
+    # Also look for scientific notation format (e.g., 1.23457E+11)
+    sci_pattern = r'(?:UTR|Ref\.?|Reference)\s*(?:No\.?|Number)?[:\s]*(\d+\.\d+E\+\d+)(?![0-9\-])'
+
     match = re.search(pattern, text)
 
     if match:
@@ -161,7 +164,47 @@ def extract_utr_from_text(text: str) -> Optional[str]:
         if validate_utr_number(utr_number):
             return utr_number
 
+    # Try matching scientific notation
+    sci_match = re.search(sci_pattern, text)
+
+    if sci_match:
+        sci_notation = sci_match.group(1)
+        try:
+            # Convert scientific notation to full number
+            full_number = '{:.0f}'.format(float(sci_notation))
+
+            # Validate UTR number format
+            if validate_utr_number(full_number):
+                return full_number
+        except ValueError:
+            pass
+
     return None
+
+
+# def extract_utr_from_text(text: str) -> Optional[str]:
+#     """
+#     Extract UTR number from text
+#
+#     Parameters:
+#     - text: Text to extract UTR number from
+#
+#     Returns:
+#     - UTR number if found, None otherwise
+#     """
+#     # General pattern for UTR numbers
+#     pattern = r'(?:UTR|Ref\.?|Reference)\s*(?:No\.?|Number)?[:\s]*([A-Za-z0-9]{12,22})(?![0-9\-])'
+#
+#     match = re.search(pattern, text)
+#
+#     if match:
+#         utr_number = match.group(1)
+#
+#         # Validate UTR number format
+#         if validate_utr_number(utr_number):
+#             return utr_number
+#
+#     return None
 
 
 def get_payment_by_utr(utr_number: str) -> Optional[Dict[str, Any]]:

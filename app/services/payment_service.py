@@ -207,7 +207,7 @@ def verify_payment(
         remarks: str = None
 ) -> Dict[str, Any]:
     """
-    Verify a payment (mark as CONFIRMED)
+    Verify a payment (mark as CONFIRMED) and calculate the commission.
 
     Parameters:
     - payment_id: Payment ID
@@ -217,13 +217,48 @@ def verify_payment(
     - remarks: Additional remarks
 
     Returns:
-    - Updated payment data
+    - Updated payment data with commission details
     """
-    # Start a transaction
-    queries = []
+    # Validate UTR number format
+    if not validate_utr_number(utr_number):
+        raise ValueError("Invalid UTR number format")
 
-    # Update payment query
-    update_query = """
+    # Check if UTR number is already used
+    check_query = """
+    SELECT id, merchant_id, reference
+    FROM payments
+    WHERE utr_number = %s AND status = 'CONFIRMED'
+    """
+    existing_payment = execute_query(check_query, (utr_number,), single=True)
+
+    if existing_payment:
+        raise ValueError(f"UTR number already used for payment {existing_payment['reference']}")
+
+    # Get payment details including commission rate
+    payment_query = """
+    SELECT 
+        p.id, p.merchant_id, p.reference, p.amount, p.currency, 
+        p.payment_type, m.commission_rate
+    FROM 
+        payments p
+    JOIN
+        merchants m ON p.merchant_id = m.id
+    WHERE 
+        p.id = %s AND p.status = 'PENDING'
+    """
+    payment = execute_query(payment_query, (payment_id,), single=True)
+
+    if not payment:
+        raise ValueError("Payment not found or already processed")
+
+    # Calculate commission
+    commission_rate = payment["commission_rate"]
+    original_amount = payment["amount"]
+    fee_amount = int(original_amount * (commission_rate / 100))
+    final_amount = original_amount - fee_amount
+
+    # Update payment status
+    update_payment_query = """
     UPDATE payments
     SET 
         status = 'CONFIRMED',
@@ -236,71 +271,181 @@ def verify_payment(
         id = %s AND status = 'PENDING'
     RETURNING id, merchant_id, reference, amount, currency, payment_type, status
     """
+    updated_payment = execute_query(update_payment_query, (utr_number, verified_by, verification_method, remarks, payment_id), single=True)
 
-    # Add the update query to transaction
-    queries.append((update_query, (utr_number, verified_by, verification_method, remarks, payment_id)))
+    if not updated_payment:
+        raise ValueError("Payment update failed")
 
-    try:
-        # Execute the transaction
-        result = execute_query(update_query, (utr_number, verified_by, verification_method, remarks, payment_id),
-                               single=True)
+    # Record transaction fee
+    insert_fee_query = """
+    INSERT INTO transaction_fees (
+        payment_id, merchant_id, original_amount, commission_rate, 
+        fee_amount, final_amount
+    ) VALUES (
+        %s, %s, %s, %s, %s, %s
+    )
+    """
+    execute_query(insert_fee_query, (payment_id, payment["merchant_id"], original_amount, commission_rate, fee_amount, final_amount), fetch=False)
 
-        if not result:
-            raise ValueError("Payment not found or already processed")
+    # Include fee information in the return data
+    result = dict(updated_payment)
+    result["fee_info"] = {
+        "commission_rate": float(commission_rate),
+        "fee_amount": fee_amount,
+        "final_amount": final_amount
+    }
 
-        # Get merchant callback URL
-        merchant_query = """
-        SELECT 
-            callback_url, webhook_secret
-        FROM 
-            merchants
-        WHERE 
-            id = %s
-        """
-        merchant = execute_query(merchant_query, (result["merchant_id"],), single=True)
+    # Get merchant callback URL
+    merchant_query = """
+    SELECT 
+        callback_url, webhook_secret
+    FROM 
+        merchants
+    WHERE 
+        id = %s
+    """
+    merchant = execute_query(merchant_query, (result["merchant_id"],), single=True)
 
-        # Prepare callback data
-        callback_data = {
-            "reference_id": result["reference"],
-            "status": 2,  # 2: Confirmed
-            "remarks": remarks or "Payment processed successfully",
-            "amount": str(result["amount"])
+    # Prepare callback data with fee information
+    callback_data = {
+        "reference_id": result["reference"],
+        "status": 2,  # 2: Confirmed
+        "remarks": remarks or "Payment processed successfully",
+        "amount": str(result["amount"]),
+        "fee_info": {
+            "commission_rate": float(commission_rate),
+            "fee_amount": fee_amount,
+            "final_amount": final_amount
         }
+    }
 
-        # Send webhook asynchronously
-        asyncio.create_task(
-            send_webhook(
-                merchant["callback_url"],
-                callback_data,
-                merchant["webhook_secret"]
-            )
+    # Send webhook asynchronously
+    asyncio.create_task(
+        send_webhook(
+            merchant["callback_url"],
+            callback_data,
+            merchant["webhook_secret"]
         )
+    )
 
-        # Mark callback as sent
-        update_callback_query = """
-        UPDATE payments
-        SET 
-            callback_sent = TRUE,
-            callback_attempts = 1
-        WHERE 
-            id = %s
-        """
-        execute_query(update_callback_query, (payment_id,), fetch=False)
+    # Mark callback as sent
+    update_callback_query = """
+    UPDATE payments
+    SET 
+        callback_sent = TRUE,
+        callback_attempts = 1
+    WHERE 
+        id = %s
+    """
+    execute_query(update_callback_query, (payment_id,), fetch=False)
 
-        return {
-            "id": result["id"],
-            "reference": result["reference"],
-            "status": result["status"],
-            "amount": result["amount"],
-            "currency": result["currency"],
-            "payment_type": result["payment_type"],
-            "utr_number": utr_number,
-            "verified_by": verified_by
-        }
+    return result
 
-    except Exception as e:
-        logger.error(f"Error verifying payment: {e}")
-        raise
+
+
+#
+# def verify_payment(
+#         payment_id: str,
+#         utr_number: str,
+#         verified_by: str,
+#         verification_method: str = "MANUAL",
+#         remarks: str = None
+# ) -> Dict[str, Any]:
+#     """
+#     Verify a payment (mark as CONFIRMED)
+#
+#     Parameters:
+#     - payment_id: Payment ID
+#     - utr_number: UTR number
+#     - verified_by: ID of the user who verified the payment
+#     - verification_method: How was the payment verified (MANUAL/AUTO)
+#     - remarks: Additional remarks
+#
+#     Returns:
+#     - Updated payment data
+#     """
+#     # Start a transaction
+#     queries = []
+#
+#     # Update payment query
+#     update_query = """
+#     UPDATE payments
+#     SET
+#         status = 'CONFIRMED',
+#         utr_number = %s,
+#         verified_by = %s,
+#         verification_method = %s,
+#         remarks = %s,
+#         updated_at = NOW()
+#     WHERE
+#         id = %s AND status = 'PENDING'
+#     RETURNING id, merchant_id, reference, amount, currency, payment_type, status
+#     """
+#
+#     # Add the update query to transaction
+#     queries.append((update_query, (utr_number, verified_by, verification_method, remarks, payment_id)))
+#
+#     try:
+#         # Execute the transaction
+#         result = execute_query(update_query, (utr_number, verified_by, verification_method, remarks, payment_id),
+#                                single=True)
+#
+#         if not result:
+#             raise ValueError("Payment not found or already processed")
+#
+#         # Get merchant callback URL
+#         merchant_query = """
+#         SELECT
+#             callback_url, webhook_secret
+#         FROM
+#             merchants
+#         WHERE
+#             id = %s
+#         """
+#         merchant = execute_query(merchant_query, (result["merchant_id"],), single=True)
+#
+#         # Prepare callback data
+#         callback_data = {
+#             "reference_id": result["reference"],
+#             "status": 2,  # 2: Confirmed
+#             "remarks": remarks or "Payment processed successfully",
+#             "amount": str(result["amount"])
+#         }
+#
+#         # Send webhook asynchronously
+#         asyncio.create_task(
+#             send_webhook(
+#                 merchant["callback_url"],
+#                 callback_data,
+#                 merchant["webhook_secret"]
+#             )
+#         )
+#
+#         # Mark callback as sent
+#         update_callback_query = """
+#         UPDATE payments
+#         SET
+#             callback_sent = TRUE,
+#             callback_attempts = 1
+#         WHERE
+#             id = %s
+#         """
+#         execute_query(update_callback_query, (payment_id,), fetch=False)
+#
+#         return {
+#             "id": result["id"],
+#             "reference": result["reference"],
+#             "status": result["status"],
+#             "amount": result["amount"],
+#             "currency": result["currency"],
+#             "payment_type": result["payment_type"],
+#             "utr_number": utr_number,
+#             "verified_by": verified_by
+#         }
+#
+#     except Exception as e:
+#         logger.error(f"Error verifying payment: {e}")
+#         raise
 
 
 def decline_payment(

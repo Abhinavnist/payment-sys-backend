@@ -185,6 +185,9 @@ async def process_failed_webhooks() -> None:
             "remarks": "Payment processed",
             "amount": str(webhook["amount"])
         }
+        # Add fee info if available
+        if "fee_info" in webhook:
+            callback_data["fee_info"] = webhook["fee_info"]
 
         # Send webhook
         await send_webhook(

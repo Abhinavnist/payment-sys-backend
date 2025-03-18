@@ -173,6 +173,10 @@ def extract_utrs_from_csv(file_path: str, bank_name: str) -> List[Dict[str, Any]
     return utr_data
 
 
+def validate_utr_number(utr_value):
+    pass
+
+
 def extract_utrs_from_excel(file_path: str, bank_name: str) -> List[Dict[str, Any]]:
     """
     Extract UTR numbers and amounts from Excel file
@@ -187,33 +191,116 @@ def extract_utrs_from_excel(file_path: str, bank_name: str) -> List[Dict[str, An
     utr_data = []
 
     try:
-        # Read Excel file
-        df = pd.read_excel(file_path)
+        # Read Excel file with specific data types
+        df = pd.read_excel(
+            file_path,
+            dtype={'UTR': str, 'UTR No': str, 'Reference': str, 'Reference No': str}
+        )
 
         # Get UTR pattern for the bank
         utr_pattern = UTR_PATTERNS.get(bank_name, UTR_PATTERNS["default"])
 
         # Process each row
         for _, row in df.iterrows():
-            # Convert row to string and search for UTR pattern
-            row_str = ' '.join(str(val) for val in row.values)
-            utr_match = re.search(utr_pattern, row_str)
+            # First check if there's a column that might contain UTRs
+            utr_columns = ['UTR', 'Reference', 'UTR No', 'Reference No', 'Transaction ID']
+            found_utr = False
 
-            if utr_match:
-                utr_number = utr_match.group(1)
+            for col in utr_columns:
+                if col in df.columns and pd.notna(row.get(col)):
+                    utr_value = str(row[col])
 
-                # Try to find amount in the row
-                amount = extract_amount_from_row(row)
+                    # Check if value is in scientific notation
+                    if 'E+' in utr_value:
+                        try:
+                            utr_value = '{:.0f}'.format(float(utr_value))
+                        except ValueError:
+                            pass
 
-                if amount:
-                    utr_data.append({
-                        "utr_number": utr_number,
-                        "amount": amount
-                    })
+                    if validate_utr_number(utr_value):
+                        # Try to find amount in other columns
+                        amount = extract_amount_from_row(row)
+
+                        if amount:
+                            utr_data.append({
+                                "utr_number": utr_value,
+                                "amount": amount
+                            })
+                            found_utr = True
+                            break
+
+            # If no UTR found in specific columns, try the entire row
+            if not found_utr:
+                # Convert row to string and search for UTR pattern
+                row_str = ' '.join(str(val) for val in row.values)
+                utr_match = re.search(utr_pattern, row_str)
+
+                if utr_match:
+                    utr_number = utr_match.group(1)
+
+                    # Check if value is in scientific notation
+                    if 'E+' in utr_number:
+                        try:
+                            utr_number = '{:.0f}'.format(float(utr_number))
+                        except ValueError:
+                            pass
+
+                    # Try to find amount in the row
+                    amount = extract_amount_from_row(row)
+
+                    if amount and validate_utr_number(utr_number):
+                        utr_data.append({
+                            "utr_number": utr_number,
+                            "amount": amount
+                        })
     except Exception as e:
         logger.error(f"Error extracting UTRs from Excel: {e}")
 
     return utr_data
+# 
+# def extract_utrs_from_excel(file_path: str, bank_name: str) -> List[Dict[str, Any]]:
+#     """
+#     Extract UTR numbers and amounts from Excel file
+# 
+#     Parameters:
+#     - file_path: Path to Excel file
+#     - bank_name: Name of the bank
+# 
+#     Returns:
+#     - List of UTR data (UTR number and amount)
+#     """
+#     utr_data = []
+# 
+#     try:
+#         # Read Excel file
+#         df = pd.read_excel(file_path,
+#                            dtype={'UTR': str, 'UTR No': str, 'Reference': str, 'Reference No': str}
+#                            )
+# 
+#         # Get UTR pattern for the bank
+#         utr_pattern = UTR_PATTERNS.get(bank_name, UTR_PATTERNS["default"])
+# 
+#         # Process each row
+#         for _, row in df.iterrows():
+#             # Convert row to string and search for UTR pattern
+#             row_str = ' '.join(str(val) for val in row.values)
+#             utr_match = re.search(utr_pattern, row_str)
+# 
+#             if utr_match:
+#                 utr_number = utr_match.group(1)
+# 
+#                 # Try to find amount in the row
+#                 amount = extract_amount_from_row(row)
+# 
+#                 if amount:
+#                     utr_data.append({
+#                         "utr_number": utr_number,
+#                         "amount": amount
+#                     })
+#     except Exception as e:
+#         logger.error(f"Error extracting UTRs from Excel: {e}")
+# 
+#     return utr_data
 
 
 def extract_utrs_from_pdf(file_path: str, bank_name: str) -> List[Dict[str, Any]]:

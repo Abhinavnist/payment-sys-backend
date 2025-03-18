@@ -189,3 +189,7 @@ class ChangePasswordRequest(BaseModel):
             raise ValueError('Password must be at least 8 characters long')
         # Add more password complexity rules as needed
         return v
+
+class MerchantBase(BaseModel):
+    # ... existing fields
+    commission_rate: float = Field(2.5, description="Commission rate (%)")
