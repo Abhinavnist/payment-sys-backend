@@ -15,6 +15,7 @@ class PaymentRequest(BaseModel):
     bank: Optional[str] = Field(None, description="Player's preferred bank")
     bank_ifsc: Optional[str] = Field(None, description="Player's bank Ifsc")
     callback_url: str = Field(..., description="Merchant's callback URL")
+    return_url: str = Field(..., description="return URL affter submit url")
     ae_type: str = Field("1", description="Defaulted by 1")
     user_data: Optional[Dict[str, Any]] = Field(None, description="Additional user data")
 
@@ -54,6 +55,7 @@ class PaymentResponseData(BaseModel):
     receiverInfo: Optional[ReceiverUPIInfo] = None
     receiverBankInfo: Optional[ReceiverBankInfo] = None
     upiLink: Optional[str] = None
+    paymentPageUrl: Optional[str] = None
     trxnHashKey: str
     amount: str
     requestedDate: str

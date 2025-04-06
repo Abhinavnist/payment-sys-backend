@@ -42,6 +42,9 @@ def create_payment_request(
     payment_type = payment_data.get("action")
     amount = payment_data.get("amount")
 
+    # Get the return URL from payment data (we won't store this)
+    return_url = payment_data.get("return_url", "")
+
     # Get merchant's payment limits
     query = """
     SELECT 
@@ -101,43 +104,108 @@ def create_payment_request(
 
     # Execute query and get the inserted ID and timestamp
     result = execute_query(query, insert_data, single=True)
+    payment_id = result["id"]
+    payment_method = "UPI" if payment_data.get("ae_type") == "1" else "BANK_TRANSFER"
 
     # Format response based on payment type
     if payment_type == "DEPOSIT":
-        # Get active UPI details for the merchant
-        upi_query = """
-        SELECT 
-            upi_id, name
-        FROM 
-            merchant_upi_details
-        WHERE 
-            merchant_id = %s AND is_active = TRUE
-        LIMIT 1
-        """
-        upi_details = execute_query(upi_query, (merchant_id,), single=True)
+        if payment_method == "UPI":
+            # Get active UPI details for the merchant
+            upi_query = """
+            SELECT 
+                upi_id, name
+            FROM 
+                merchant_upi_details
+            WHERE 
+                merchant_id = %s AND is_active = TRUE
+            LIMIT 1
+            """
+            upi_details = execute_query(upi_query, (merchant_id,), single=True)
 
-        if not upi_details:
-            raise ValueError("No active UPI payment method available")
+            if not upi_details:
+                raise ValueError("No active UPI payment method available")
 
-        # Generate UPI payment link (frontend can generate QR code from this)
-        upi_link = f"upi://pay?pa={urllib.parse.quote(upi_details['upi_id'])}&pn={urllib.parse.quote(upi_details['name'])}&am={amount}&cu=INR&tn={trxn_hash_key}"
-
-        response = {
-            "message": "Success",
-            "status": 201,
-            "response": {
-                "paymentMethod": "UPI",
-                "receiverInfo": {
-                    "upi_id": upi_details["upi_id"],
-                    "name": upi_details["name"]
-                },
-                "upiLink": upi_link,
-                "trxnHashKey": trxn_hash_key,
-                "amount": str(amount),
-                "requestedDate": result["created_at"].isoformat()
+            # Generate UPI payment link (frontend can generate QR code from this)
+            upi_link = f"upi://pay?pa={urllib.parse.quote(upi_details['upi_id'])}&pn={urllib.parse.quote(upi_details['name'])}&am={amount}&cu=INR&tn={trxn_hash_key}"
+            # Generate payment page URL including payment_id and transaction details
+            payment_page_url = f"{settings.FRONTEND_URL}/payment-page?id={payment_id}&hash={trxn_hash_key}&amount={amount}&upi_id={urllib.parse.quote(upi_details['upi_id'])}&name={urllib.parse.quote(upi_details['name'])}"
+            # Add return URL as a parameter if provided
+            if return_url:
+                # Optional: Validate return URL domain if needed
+                # if not is_allowed_domain(return_url):
+                #     return_url = ""
+                
+                # Encode the return URL and add it to the payment page URL
+                payment_page_url += f"&redirect={urllib.parse.quote(return_url)}"
+            response = {
+                "message": "Success",
+                "status": 201,
+                "response": {
+                    "paymentMethod": "UPI",
+                    "receiverInfo": {
+                        "upi_id": upi_details["upi_id"],
+                        "name": upi_details["name"]
+                    },
+                    "upiLink": upi_link,
+                    "paymentPageUrl": payment_page_url,
+                    "trxnHashKey": trxn_hash_key,
+                    "amount": str(amount),
+                    "requestedDate": result["created_at"].isoformat()
+                }
             }
-        }
+        else:  # BANK_TRANSFER
+            # Get active bank details for the merchant
+            bank_query = """
+            SELECT 
+                bank_name, account_name, account_number, ifsc_code
+            FROM 
+                merchant_bank_details
+            WHERE 
+                merchant_id = %s AND is_active = TRUE
+            LIMIT 1
+            """
+            bank_details = execute_query(bank_query, (merchant_id,), single=True)
+
+            if not bank_details:
+                raise ValueError("No active bank account available for transfer")
+
+            # Generate payment page URL for bank transfer
+            payment_page_url = f"{settings.FRONTEND_URL}/bank-transfer-page?id={payment_id}&hash={trxn_hash_key}&amount={amount}"
+            
+            # Add bank details to the URL
+            payment_page_url += f"&bank_name={urllib.parse.quote(bank_details['bank_name'])}"
+            payment_page_url += f"&account_name={urllib.parse.quote(bank_details['account_name'])}"
+            payment_page_url += f"&account_number={urllib.parse.quote(bank_details['account_number'])}"
+            payment_page_url += f"&ifsc_code={urllib.parse.quote(bank_details['ifsc_code'])}"
+            
+            # Add return URL as a parameter if provided
+            if return_url:
+                payment_page_url += f"&redirect={urllib.parse.quote(return_url)}"
+                
+            response = {
+                "message": "Success",
+                "status": 201,
+                "response": {
+                    "paymentMethod": "BANK_TRANSFER",
+                    "receiverBankInfo": {
+                        "bank_name": bank_details["bank_name"],
+                        "account_name": bank_details["account_name"],
+                        "account_number": bank_details["account_number"],
+                        "ifsc_code": bank_details["ifsc_code"]
+                    },
+                    "paymentPageUrl": payment_page_url,
+                    "trxnHashKey": trxn_hash_key,
+                    "amount": str(amount),
+                    "requestedDate": result["created_at"].isoformat()
+                }
+            }
     else:  # WITHDRAWAL
+         # For withdrawals, we can still generate a status page URL
+        # status_page_url = f"{settings.FRONTEND_URL}/withdrawal-status?id={payment_id}&hash={trxn_hash_key}&amount={amount}"
+        
+        # Add return URL as a parameter if provided
+        # if return_url:
+            # status_page_url += f"&redirect={urllib.parse.quote(return_url)}"
         response = {
             "message": "Success",
             "status": 201,
@@ -150,7 +218,8 @@ def create_payment_request(
                 },
                 "trxnHashKey": trxn_hash_key,
                 "amount": str(amount),
-                "requestedDate": result["created_at"].isoformat()
+                "requestedDate": result["created_at"].isoformat(),
+                # "statusPageUrl": status_page_url  # New field with the status page URL
             }
         }
 
@@ -552,7 +621,7 @@ def get_pending_payments(
     query = """
     SELECT 
         p.id, p.merchant_id, m.business_name, p.reference, p.trxn_hash_key,
-        p.payment_type, p.payment_method, p.amount, p.currency,
+        p.payment_type, p.payment_method, p.amount, p.currency, p.utr,
         p.account_name, p.account_number, p.bank, p.bank_ifsc,
         p.created_at, p.updated_at
     FROM 

@@ -1,13 +1,14 @@
+import logging
 from fastapi import Request, HTTPException, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
-import logging
-from typing import Callable, Dict, Any, Optional
+from typing import Callable, Dict, Any
+from datetime import datetime, timedelta
 
 from app.core.security import get_api_key_merchant, verify_ip_whitelist
+from app.core.shared import ip_access_attempts  # Import from shared module
 
 logger = logging.getLogger(__name__)
-
 
 class IPWhitelistMiddleware(BaseHTTPMiddleware):
     """
@@ -46,6 +47,30 @@ class IPWhitelistMiddleware(BaseHTTPMiddleware):
             # Check if IP is whitelisted
             if not verify_ip_whitelist(merchant_id, client_ip):
                 logger.warning(f"IP {client_ip} not whitelisted for merchant {merchant_id}")
+                
+                # Track this IP attempt for the admin dashboard
+                if client_ip not in ip_access_attempts:
+                    ip_access_attempts[client_ip] = {
+                        "merchant_id": merchant_id,
+                        "last_attempt": datetime.now().isoformat(),
+                        "attempts": 1
+                    }
+                else:
+                    # Update existing record
+                    ip_access_attempts[client_ip]["last_attempt"] = datetime.now().isoformat()
+                    ip_access_attempts[client_ip]["attempts"] += 1
+                    ip_access_attempts[client_ip]["merchant_id"] = merchant_id
+                
+                # Clean up old entries (older than 7 days)
+                current_time = datetime.now()
+                for ip, data in list(ip_access_attempts.items()):
+                    try:
+                        last_attempt = datetime.fromisoformat(data["last_attempt"])
+                        if (current_time - last_attempt) > timedelta(days=7):
+                            del ip_access_attempts[ip]
+                    except (ValueError, KeyError):
+                        # Handle invalid date format or missing keys
+                        continue
 
                 # Return error response
                 return JSONResponse(

@@ -72,11 +72,11 @@ from typing import Any, Dict, List, Optional, Union
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
-
+  # 8 days
 class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = secrets.token_urlsafe(32)
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8
     SERVER_NAME: str = "Payment System API"
     SERVER_HOST: str = "localhost"
     SERVER_PORT: int = 5678
@@ -97,12 +97,13 @@ class Settings(BaseSettings):
     POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
     POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "root")
     POSTGRES_DB: str = os.getenv("POSTGRES_DB", "payment_system")
-    POSTGRES_PORT: int = int(os.getenv("POSTGRES_PORT", 5432))  # Cast to int
+    POSTGRES_PORT: int = int(os.getenv("POSTGRES_PORT", 5432))
 
     # Redis Connection (for rate limiting)
     REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
-    REDIS_PORT: int = int(os.getenv("REDIS_PORT", 6379))  # Cast to int
-    REDIS_DB: int = int(os.getenv("REDIS_DB", 0))  # Cast to int
+    REDIS_PORT: int = int(os.getenv("REDIS_PORT", 6379))
+    REDIS_DB: int = int(os.getenv("REDIS_DB", 0))
+      # Cast to int
 
     # Payment Settings
     DEFAULT_CURRENCY: str = "INR"
@@ -114,18 +115,21 @@ class Settings(BaseSettings):
     # File Upload
     UPLOAD_FOLDER: str = "uploads"
     ALLOWED_EXTENSIONS: List[str] = ["csv", "xlsx", "pdf", "xls"]
-    MAX_CONTENT_LENGTH: int = 16 * 1024 * 1024  # 16 MB
+    MAX_CONTENT_LENGTH: int = 16 * 1024 * 1024
+      # 16 MB
 
     # Webhook Settings
     WEBHOOK_RETRY_ATTEMPTS: int = 3
-    WEBHOOK_RETRY_DELAY: int = 60  # seconds
+    WEBHOOK_RETRY_DELAY: int = 60 
+     # seconds
 
     # QR Code Settings
     QR_CODE_BOX_SIZE: int = 10
     QR_CODE_BORDER: int = 4
 
-    # API Rate Limiting
-    DEFAULT_RATE_LIMIT: int = 60  # requests per minute
+    # API Rate Limiting   # requests per minute
+    DEFAULT_RATE_LIMIT: int = 60
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "https://payment-sys-frontend.vercel.app")
 
     class Config:
         case_sensitive = True

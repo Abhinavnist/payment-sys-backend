@@ -154,6 +154,55 @@ def get_payment_stats(days: int = 30) -> Dict[str, Any]:
             "total": merchant["count"],
             "confirmed": merchant["confirmed"]
         })
+    # Add commission data queries
+    total_commission_query = """
+    SELECT COALESCE(SUM(fee_amount), 0) as total_commission,
+           COALESCE(AVG(commission_rate), 0) as avg_commission_rate
+    FROM transaction_fees tf
+    JOIN payments p ON tf.payment_id = p.id
+    WHERE p.created_at >= %s AND p.status = 'CONFIRMED'
+    """
+
+    commission_data = execute_query(
+        total_commission_query,
+        (start_date,),
+        single=True
+    )
+
+    total_commission = commission_data["total_commission"]
+    avg_commission_rate = round(float(commission_data["avg_commission_rate"]), 2) if commission_data["avg_commission_rate"] else 0
+    # Get merchant commission data
+    merchant_commission_query = """
+    SELECT 
+        m.business_name,
+        COALESCE(SUM(tf.original_amount), 0) as total_amount,
+        COALESCE(SUM(tf.fee_amount), 0) as commission_amount,
+        COALESCE(SUM(tf.final_amount), 0) as final_amount,
+        COUNT(tf.id) as transaction_count
+    FROM 
+        merchants m
+    LEFT JOIN 
+        transaction_fees tf ON m.id = tf.merchant_id
+    LEFT JOIN
+        payments p ON tf.payment_id = p.id AND p.created_at >= %s AND p.status = 'CONFIRMED'
+    GROUP BY 
+        m.id, m.business_name
+    ORDER BY 
+        commission_amount DESC
+    LIMIT 10
+    """
+    merchant_commissions = execute_query(merchant_commission_query, (start_date,))
+    # Format merchant commission data
+    merchant_commission_data = []
+    for merchant in merchant_commissions:
+        if merchant["transaction_count"] > 0:
+            merchant_commission_data.append({
+                "merchant": merchant["business_name"],
+                "total_amount": merchant["total_amount"],
+                "commission": merchant["commission_amount"],
+                "final_amount": merchant["final_amount"],
+                "transaction_count": merchant["transaction_count"]
+            })
 
     # Return stats
     return {
@@ -167,8 +216,185 @@ def get_payment_stats(days: int = 30) -> Dict[str, Any]:
         "pending_verification": pending_verification,
         "days": days,
         "daily_chart_data": daily_chart_data,
-        "merchant_chart_data": merchant_chart_data
+        "merchant_chart_data": merchant_chart_data,
+        "total_commission": total_commission,
+        "avg_commission_rate": avg_commission_rate,
+        "merchant_commission_data": merchant_commission_data
     }
+def get_merchant_commission_report(
+        merchant_id: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
+) -> Dict[str, Any]:
+    """
+    Get detailed commission report for a merchant or all merchants
+    
+    Parameters:
+    - merchant_id: Optional merchant ID to filter by
+    - start_date: Optional start date to filter by
+    - end_date: Optional end date to filter by
+    
+    Returns:
+    - Commission report data
+    """
+    # Set default dates if not provided
+    if not start_date:
+        start_date = datetime.now() - timedelta(days=30)
+    if not end_date:
+        end_date = datetime.now()
+    
+    # Build query conditions
+    conditions = ["p.status = 'CONFIRMED'", "p.created_at >= %s", "p.created_at <= %s"]
+    params = [start_date, end_date]
+    
+    if merchant_id:
+        conditions.append("tf.merchant_id = %s")
+        params.append(merchant_id)
+    
+    where_clause = " AND ".join(conditions)
+    
+    # Get total commission summary
+    summary_query = f"""
+    SELECT 
+        COALESCE(SUM(tf.original_amount), 0) as total_amount,
+        COALESCE(SUM(tf.fee_amount), 0) as total_commission,
+        COALESCE(SUM(tf.final_amount), 0) as final_amount,
+        COUNT(DISTINCT tf.merchant_id) as merchant_count,
+        COUNT(tf.id) as transaction_count
+    FROM 
+        transaction_fees tf
+    JOIN
+        payments p ON tf.payment_id = p.id
+    WHERE 
+        {where_clause}
+    """
+    
+    summary = execute_query(summary_query, tuple(params), single=True)
+    
+    # If merchant_id is provided, get daily breakdown
+    if merchant_id:
+        daily_query = f"""
+        SELECT 
+            DATE(p.created_at) as date,
+            COALESCE(SUM(tf.original_amount), 0) as daily_amount,
+            COALESCE(SUM(tf.fee_amount), 0) as daily_commission,
+            COALESCE(SUM(tf.final_amount), 0) as daily_final_amount,
+            COUNT(tf.id) as transaction_count
+        FROM 
+            transaction_fees tf
+        JOIN
+            payments p ON tf.payment_id = p.id
+        WHERE 
+            {where_clause}
+        GROUP BY 
+            DATE(p.created_at)
+        ORDER BY 
+            date DESC
+        """
+        
+        daily_data = execute_query(daily_query, tuple(params))
+        
+        # Format daily data
+        daily_breakdown = []
+        for day in daily_data:
+            daily_breakdown.append({
+                "date": day["date"].strftime("%Y-%m-%d"),
+                "amount": day["daily_amount"],
+                "commission": day["daily_commission"],
+                "final_amount": day["daily_final_amount"],
+                "transaction_count": day["transaction_count"]
+            })
+        
+        # Get payment type breakdown
+        payment_type_query = f"""
+        SELECT 
+            p.payment_type,
+            COALESCE(SUM(tf.original_amount), 0) as total_amount,
+            COALESCE(SUM(tf.fee_amount), 0) as total_commission,
+            COALESCE(SUM(tf.final_amount), 0) as final_amount,
+            COUNT(tf.id) as transaction_count
+        FROM 
+            transaction_fees tf
+        JOIN
+            payments p ON tf.payment_id = p.id
+        WHERE 
+            {where_clause}
+        GROUP BY 
+            p.payment_type
+        """
+        
+        payment_types = execute_query(payment_type_query, tuple(params))
+        
+        # Format payment type data
+        payment_type_breakdown = {}
+        for pt in payment_types:
+            payment_type_breakdown[pt["payment_type"]] = {
+                "amount": pt["total_amount"],
+                "commission": pt["total_commission"],
+                "final_amount": pt["final_amount"],
+                "transaction_count": pt["transaction_count"]
+            }
+        
+        return {
+            "summary": {
+                "total_amount": summary["total_amount"],
+                "total_commission": summary["total_commission"],
+                "final_amount": summary["final_amount"],
+                "transaction_count": summary["transaction_count"],
+                "commission_percentage": round(summary["total_commission"] / summary["total_amount"] * 100, 2) if summary["total_amount"] > 0 else 0
+            },
+            "daily_breakdown": daily_breakdown,
+            "payment_type_breakdown": payment_type_breakdown
+        }
+    else:
+        # Get merchant breakdown for admin view
+        merchant_query = f"""
+        SELECT 
+            m.id, m.business_name,
+            COALESCE(SUM(tf.original_amount), 0) as total_amount,
+            COALESCE(SUM(tf.fee_amount), 0) as total_commission,
+            COALESCE(SUM(tf.final_amount), 0) as final_amount,
+            COALESCE(AVG(tf.commission_rate), 0) as avg_commission_rate,
+            COUNT(tf.id) as transaction_count
+        FROM 
+            merchants m
+        LEFT JOIN 
+            transaction_fees tf ON m.id = tf.merchant_id
+        LEFT JOIN
+            payments p ON tf.payment_id = p.id AND {where_clause}
+        GROUP BY 
+            m.id, m.business_name
+        ORDER BY 
+            total_commission DESC
+        """
+        
+        merchants = execute_query(merchant_query, tuple(params))
+        
+        # Format merchant data
+        merchant_breakdown = []
+        for merchant in merchants:
+            if merchant["transaction_count"] > 0:
+                merchant_breakdown.append({
+                    "id": merchant["id"],
+                    "business_name": merchant["business_name"],
+                    "total_amount": merchant["total_amount"],
+                    "commission": merchant["total_commission"],
+                    "final_amount": merchant["final_amount"],
+                    "avg_commission_rate": float(merchant["avg_commission_rate"]),
+                    "transaction_count": merchant["transaction_count"]
+                })
+        
+        return {
+            "summary": {
+                "total_amount": summary["total_amount"],
+                "total_commission": summary["total_commission"],
+                "final_amount": summary["final_amount"],
+                "merchant_count": summary["merchant_count"],
+                "transaction_count": summary["transaction_count"],
+                "commission_percentage": round(summary["total_commission"] / summary["total_amount"] * 100, 2) if summary["total_amount"] > 0 else 0
+            },
+            "merchant_breakdown": merchant_breakdown
+        }
 
 
 def get_merchant_reports(
@@ -274,6 +500,108 @@ def get_merchant_reports(
     }
 
 
+# def generate_payments_csv(
+#         merchant_id: Optional[str] = None,
+#         payment_type: Optional[str] = None,
+#         status: Optional[str] = None,
+#         start_date: Optional[datetime] = None,
+#         end_date: Optional[datetime] = None
+# ) -> Dict[str, Any]:
+#     """
+#     Generate CSV data for payments export
+
+#     Parameters:
+#     - merchant_id: Filter by merchant ID
+#     - payment_type: Filter by payment type
+#     - status: Filter by status
+#     - start_date: Start date filter
+#     - end_date: End date filter
+
+#     Returns:
+#     - CSV data dictionary with headers and rows
+#     """
+#     # Base query
+#     query = """
+#     SELECT 
+#         p.id, p.reference, p.trxn_hash_key, 
+#         p.payment_type, p.payment_method, p.amount, 
+#         p.currency, p.status, p.utr_number,
+#         p.account_name, p.account_number, p.bank, p.bank_ifsc,
+#         p.created_at, p.updated_at, 
+#         p.remarks, m.business_name as merchant_name
+#     FROM 
+#         payments p
+#     JOIN 
+#         merchants m ON p.merchant_id = m.id
+#     WHERE 
+#         1=1
+#     """
+
+#     # Build query parameters
+#     query_params = []
+
+#     # Add filters
+#     if merchant_id:
+#         query += " AND p.merchant_id = %s"
+#         query_params.append(merchant_id)
+
+#     if payment_type:
+#         query += " AND p.payment_type = %s"
+#         query_params.append(payment_type)
+
+#     if status:
+#         query += " AND p.status = %s"
+#         query_params.append(status)
+
+#     if start_date:
+#         query += " AND p.created_at >= %s"
+#         query_params.append(start_date)
+
+#     if end_date:
+#         query += " AND p.created_at <= %s"
+#         query_params.append(end_date)
+
+#     # Add order by
+#     query += " ORDER BY p.created_at DESC"
+
+#     # Execute query
+#     payments = execute_query(query, tuple(query_params) if query_params else None)
+
+#     # Define CSV headers
+#     headers = [
+#         "ID", "Reference", "Transaction Hash", "Type", "Method",
+#         "Amount", "Currency", "Status", "UTR Number",
+#         "Account Name", "Account Number", "Bank", "IFSC Code",
+#         "Created At", "Updated At", "Remarks", "Merchant"
+#     ]
+
+#     # Prepare rows
+#     rows = []
+#     for payment in payments:
+#         rows.append([
+#             payment["id"],
+#             payment["reference"],
+#             payment["trxn_hash_key"],
+#             payment["payment_type"],
+#             payment["payment_method"],
+#             payment["amount"],
+#             payment["currency"],
+#             payment["status"],
+#             payment["utr_number"] or "",
+#             payment["account_name"] or "",
+#             payment["account_number"] or "",
+#             payment["bank"] or "",
+#             payment["bank_ifsc"] or "",
+#             payment["created_at"].strftime("%Y-%m-%d %H:%M:%S"),
+#             payment["updated_at"].strftime("%Y-%m-%d %H:%M:%S"),
+#             payment["remarks"] or "",
+#             payment["merchant_name"]
+#         ])
+
+#     return {
+#         "headers": headers,
+#         "rows": rows
+#     }
 def generate_payments_csv(
         merchant_id: Optional[str] = None,
         payment_type: Optional[str] = None,
@@ -302,11 +630,16 @@ def generate_payments_csv(
         p.currency, p.status, p.utr_number,
         p.account_name, p.account_number, p.bank, p.bank_ifsc,
         p.created_at, p.updated_at, 
-        p.remarks, m.business_name as merchant_name
+        p.remarks, m.business_name as merchant_name,
+        m.commission_rate,
+        COALESCE(tf.fee_amount, 0) as commission_amount,
+        COALESCE(tf.final_amount, p.amount) as final_amount
     FROM 
         payments p
     JOIN 
         merchants m ON p.merchant_id = m.id
+    LEFT JOIN
+        transaction_fees tf ON p.id = tf.payment_id
     WHERE 
         1=1
     """
@@ -346,19 +679,31 @@ def generate_payments_csv(
         "ID", "Reference", "Transaction Hash", "Type", "Method",
         "Amount", "Currency", "Status", "UTR Number",
         "Account Name", "Account Number", "Bank", "IFSC Code",
-        "Created At", "Updated At", "Remarks", "Merchant"
+        "Created At", "Updated At", "Remarks", "Merchant",
+        "Commission Rate (%)", "Commission Amount", "Final Amount"  # New headers
     ]
 
     # Prepare rows
     rows = []
     for payment in payments:
+        # Calculate commission amount if not available in database
+        commission_rate = payment.get("commission_rate", 0) or 0
+        amount = payment.get("amount", 0) or 0
+        commission_amount = payment.get("commission_amount", 0) or 0
+        final_amount = payment.get("final_amount", amount) or amount
+        
+        # If commission amount is 0 but we have a rate, calculate it
+        if commission_amount == 0 and commission_rate > 0 and payment["status"] == "CONFIRMED":
+            commission_amount = round(amount * commission_rate / 100)
+            final_amount = amount - commission_amount
+        
         rows.append([
             payment["id"],
             payment["reference"],
             payment["trxn_hash_key"],
             payment["payment_type"],
             payment["payment_method"],
-            payment["amount"],
+            amount,
             payment["currency"],
             payment["status"],
             payment["utr_number"] or "",
@@ -369,7 +714,10 @@ def generate_payments_csv(
             payment["created_at"].strftime("%Y-%m-%d %H:%M:%S"),
             payment["updated_at"].strftime("%Y-%m-%d %H:%M:%S"),
             payment["remarks"] or "",
-            payment["merchant_name"]
+            payment["merchant_name"],
+            f"{commission_rate:.2f}",  # Format as percentage with 2 decimal places
+            commission_amount,
+            final_amount
         ])
 
     return {

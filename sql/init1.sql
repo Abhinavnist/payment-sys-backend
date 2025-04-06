@@ -260,3 +260,29 @@ SELECT * FROM bank_statements;
 SELECT * FROM payment_links;
 
 ALTER TABLE payments ADD CONSTRAINT unique_utr UNIQUE (utr_number);
+
+
+
+-- Create bank_sms table
+CREATE TABLE bank_sms (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    sender VARCHAR(50) NOT NULL,
+    message TEXT NOT NULL,
+    extracted_amount NUMERIC,
+    extracted_utr VARCHAR(50),
+    identified_bank VARCHAR(50),
+    payment_id UUID REFERENCES payments(id),
+    matched BOOLEAN DEFAULT FALSE,
+    verified BOOLEAN DEFAULT FALSE,
+    received_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    processed_at TIMESTAMP WITH TIME ZONE,
+    processing_status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+    processing_remarks TEXT,
+    raw_data JSONB -- Store the original JSON from the SMS forwarder app
+);
+
+-- Add indexes for performance
+CREATE INDEX idx_bank_sms_payment_id ON bank_sms(payment_id);
+CREATE INDEX idx_bank_sms_extracted_utr ON bank_sms(extracted_utr);
+CREATE INDEX idx_bank_sms_received_at ON bank_sms(received_at);
+CREATE INDEX idx_bank_sms_processing_status ON bank_sms(processing_status);

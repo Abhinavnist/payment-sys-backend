@@ -364,6 +364,26 @@ async def update_merchant_upi_details(
             detail=f"Error updating UPI details: {str(e)}"
         )
 
+
+@router.get("/reports/merchant-commission")
+async def get_merchant_commission_data(
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        merchant: Dict[str, Any] = Depends(get_api_key_merchant)
+):
+    """
+    Get commission data for a merchant
+    """
+    from app.services.report_service import get_merchant_commission_report
+    
+    # Get report
+    report = get_merchant_commission_report(
+        merchant_id=merchant["id"],
+        start_date=start_date,
+        end_date=end_date
+    )
+    
+    return report
 # import logging
 # from typing import Dict, Any, List, Optional
 # import uuid

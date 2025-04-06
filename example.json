@@ -38,7 +38,8 @@
         "user_data": {
           "customer_id": "123",
           "email": "customer@example.com"
-        }
+        },
+        "return_url":"https://your-return-url.com"
       },
       "deposit_response": {
         "message": "Success",
@@ -386,9 +387,3 @@
     }
   }
 }
-//      "remarks": "Payment processed successfully",
-//      "amount": "1000"
-//    },
-//    "declined": {
-//      "reference_id": "your-transaction-reference",
-//      "status": 3

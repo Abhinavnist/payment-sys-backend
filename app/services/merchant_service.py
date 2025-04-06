@@ -74,11 +74,11 @@ def get_merchant_details(merchant_id: str) -> Optional[Dict[str, Any]]:
     Returns:
     - Merchant details
     """
-    # Get merchant query
+    # Get merchant query]
     query = """
     SELECT 
         m.id, m.business_name, m.business_type, m.contact_phone,
-        m.address, m.api_key, m.is_active, m.callback_url,
+        m.address, m.api_key, m.is_active, m.callback_url, m.commission_rate,
         m.min_deposit, m.max_deposit, m.min_withdrawal, m.max_withdrawal,
         m.created_at, m.updated_at,
         u.id as user_id, u.email, u.full_name
@@ -166,6 +166,7 @@ def get_merchant_details(merchant_id: str) -> Optional[Dict[str, Any]]:
         },
         "bank_details": bank_details,
         "upi_details": upi_details,
+        "commission_rate": merchant["commission_rate"] if "commission_rate" in merchant else 0,
         "ip_whitelist": ip_whitelist
         # "rate_limits": rate_limits
     }

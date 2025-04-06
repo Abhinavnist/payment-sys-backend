@@ -6,6 +6,10 @@ import io
 import csv
 import json
 from datetime import datetime, timedelta
+import re
+import os
+from datetime import datetime, timedelta
+from app.middlewares.ip_whitelist import ip_access_attempts
 
 from app.core.security import get_current_active_superuser
 from app.schemas.auth import UserInDB
@@ -14,6 +18,7 @@ from app.services.payment_service import (
     verify_payment,
     decline_payment
 )
+
 from app.services.bank_statement_service import (
     process_bank_statement,
     get_bank_statements
@@ -21,7 +26,8 @@ from app.services.bank_statement_service import (
 from app.services.report_service import (
     get_payment_stats,
     get_merchant_reports,
-    generate_payments_csv
+    generate_payments_csv,
+    get_merchant_commission_report
 )
 from app.services.admin_service import (
     get_users,
@@ -261,6 +267,239 @@ async def get_dashboard_statistics(
     """
     stats = get_payment_stats(days=days)
     return stats
+
+
+@router.get("/commission-dashboard")
+async def get_commission_dashboard(
+        days: int = Query(30, description="Number of days to look back"),
+        current_user: UserInDB = Depends(get_current_active_superuser)
+):
+    """
+    Get commission dashboard statistics
+    """
+    
+    
+    # Calculate start date
+    start_date = datetime.now() - timedelta(days=days)
+    end_date = datetime.now()
+    
+    # Get report
+    report = get_merchant_commission_report(
+        start_date=start_date,
+        end_date=end_date
+    )
+    
+    return {
+        "report": report,
+        "days": days
+    }
+
+@router.get("/merchant-commission/{merchant_id}")
+async def get_merchant_commission(
+        merchant_id: uuid.UUID,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        current_user: UserInDB = Depends(get_current_active_superuser)
+):
+    """
+    Get detailed commission report for a specific merchant
+    """
+    
+    # Get report
+    report = get_merchant_commission_report(
+        merchant_id=str(merchant_id),
+        start_date=start_date,
+        end_date=end_date
+    )
+    
+    return report
+
+
+@router.get("/merchants/{merchant_id}/pending-ips")
+async def get_pending_ips(
+    merchant_id: uuid.UUID,
+    current_user: UserInDB = Depends(get_current_active_superuser)
+):
+    """
+    Get pending IP addresses that need to be whitelisted for a merchant
+    """
+    from app.db.connection import execute_query
+    from app.core.shared import ip_access_attempts  # Import the shared dictionary
+    import re
+    import os
+    try:
+        # Verify merchant exists
+        merchant_query = """
+        SELECT id FROM merchants WHERE id = %s
+        """
+        merchant = execute_query(merchant_query, (str(merchant_id),), single=True)
+        
+        if not merchant:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Merchant not found"
+            )
+
+        # Get current whitelisted IPs
+        whitelist_query = """
+        SELECT ip_address FROM ip_whitelist WHERE merchant_id = %s
+        """
+        whitelisted_ips = execute_query(whitelist_query, (str(merchant_id),))
+        whitelisted_ip_set = {ip["ip_address"] for ip in whitelisted_ips}
+        
+        # Collect pending IPs from our in-memory storage
+        pending_ips = []
+        merchant_id_str = str(merchant_id)
+        
+        for ip_address, data in ip_access_attempts.items():
+            if data.get("merchant_id") == merchant_id_str and ip_address not in whitelisted_ip_set:
+                pending_ips.append({
+                    "ip_address": ip_address,
+                    "last_attempt": data.get("last_attempt", datetime.now().isoformat()),
+                    "attempts": data.get("attempts", 1)
+                })
+        
+        # Try to find additional IPs from log files
+        log_files = [
+            "app.log",  # Add your actual log files here
+            "server.log",
+            "/var/log/application.log"
+        ]
+        
+        ip_pattern = r'IP (\d+\.\d+\.\d+\.\d+) not whitelisted for merchant ' + re.escape(merchant_id_str)
+        
+        for log_file in log_files:
+            if os.path.exists(log_file):
+                try:
+                    with open(log_file, 'r') as f:
+                        for line in f:
+                            if merchant_id_str in line and "not whitelisted" in line:
+                                match = re.search(ip_pattern, line)
+                                if match:
+                                    ip_address = match.group(1)
+                                    
+                                    # Skip if already whitelisted or already in our results
+                                    if ip_address in whitelisted_ip_set or any(item["ip_address"] == ip_address for item in pending_ips):
+                                        continue
+                                    
+                                    # Extract timestamp if possible
+                                    timestamp_match = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', line)
+                                    timestamp = timestamp_match.group(1) if timestamp_match else datetime.now().isoformat()
+                                    
+                                    pending_ips.append({
+                                        "ip_address": ip_address,
+                                        "last_attempt": timestamp,
+                                        "attempts": 1
+                                    })
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail=f"Failed to get pending IPs: {str(e)}"
+                    )
+                    # logger.error(f"Error reading log file {log_file}: {e}")
+        
+        # Sort by most recent attempts
+        pending_ips.sort(key=lambda x: x["last_attempt"], reverse=True)
+        
+        return pending_ips
+        
+    except Exception as e:
+        # logger.error(f"Error getting pending IPs: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get pending IPs: {str(e)}"
+        )
+
+# @router.get("/export-commission-report")
+# async def export_commission_report(
+#         merchant_id: Optional[uuid.UUID] = None,
+#         start_date: Optional[datetime] = None,
+#         end_date: Optional[datetime] = None,
+#         current_user: UserInDB = Depends(get_current_active_superuser)
+# ):
+#     """
+#     Export commission report as CSV
+#     """
+#     if not start_date:
+#         start_date = datetime.now() - timedelta(days=30)
+#     if not end_date:
+#         end_date = datetime.now()
+    
+#     # Build query conditions
+#     conditions = ["p.status = 'CONFIRMED'", "p.created_at >= %s", "p.created_at <= %s"]
+#     params = [start_date, end_date]
+    
+#     if merchant_id:
+#         conditions.append("tf.merchant_id = %s")
+#         params.append(str(merchant_id))
+    
+#     where_clause = " AND ".join(conditions)
+    
+#     # Get detailed transaction data
+#     query = f"""
+#     SELECT 
+#         m.business_name,
+#         p.reference, p.payment_type, 
+#         tf.original_amount, tf.commission_rate, tf.fee_amount, tf.final_amount,
+#         p.created_at, p.utr_number
+#     FROM 
+#         transaction_fees tf
+#     JOIN
+#         payments p ON tf.payment_id = p.id
+#     JOIN
+#         merchants m ON tf.merchant_id = m.id
+#     WHERE 
+#         {where_clause}
+#     ORDER BY
+#         p.created_at DESC
+#     """
+    
+#     transactions = execute_query(query, tuple(params))
+    
+#     # Define CSV headers
+#     headers = [
+#         "Date", "Merchant", "Reference", "Type", "Original Amount", 
+#         "Commission Rate (%)", "Commission Amount", "Final Amount",
+#         "UTR Number"
+#     ]
+    
+#     # Prepare rows
+#     rows = []
+#     for tx in transactions:
+#         rows.append([
+#             tx["created_at"].strftime("%Y-%m-%d %H:%M:%S"),
+#             tx["business_name"],
+#             tx["reference"],
+#             tx["payment_type"],
+#             tx["original_amount"],
+#             float(tx["commission_rate"]),
+#             tx["fee_amount"],
+#             tx["final_amount"],
+#             tx["utr_number"] or ""
+#         ])
+    
+#     # Generate CSV in memory
+#     output = io.StringIO()
+#     writer = csv.writer(output)
+    
+#     # Write header
+#     writer.writerow(headers)
+    
+#     # Write data rows
+#     for row in rows:
+#         writer.writerow(row)
+    
+#     # Prepare output
+#     output.seek(0)
+    
+#     # Format filename with current date
+#     filename = f"commission_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    
+#     return StreamingResponse(
+#         io.StringIO(output.getvalue()),
+#         media_type="text/csv",
+#         headers={"Content-Disposition": f"attachment; filename={filename}"}
+#     )
 
 
 # =================== Merchant Management ===================
